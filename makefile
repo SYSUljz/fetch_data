@@ -5,7 +5,7 @@ SHELL := /bin/bash
 CONDA_ENV_PREFIX := /home/jack_li/python/LOB_research/.conda
 PYTHON_MODULE := hyperliquid.main
 
-.PHONY: run start stop
+.PHONY: run start stop process_day
 
 # --- Foreground Execution ---
 # Runs the module directly in the foreground.
@@ -29,3 +29,11 @@ stop:
 	@echo "Attempting to stop LOB research process..."
 	# Search for the Python process running the specific module
 	pkill -f "python -m $(PYTHON_MODULE)" || echo "Process not found or already stopped."
+
+# --- Manual Processing Task ---
+# Merges parquet files and syncs to cloud.
+# Usage: make process_day [DATE=2025-12-19]
+# If DATE is omitted, it defaults to yesterday (handled by the python script).
+process_day:
+	@echo "Running daily processing task..."
+	/bin/bash -c 'source $$(conda info --base)/etc/profile.d/conda.sh && conda activate $(CONDA_ENV_PREFIX) && python src/process/process_lob.py $${DATE:+--date $$DATE} --sync'

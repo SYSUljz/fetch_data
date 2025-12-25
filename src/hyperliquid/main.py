@@ -6,6 +6,8 @@ import logging
 import signal
 import sys
 import time
+import subprocess
+from datetime import datetime
 from typing import Dict, List, Any
 
 import requests
@@ -28,6 +30,38 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger("lob_research")
+
+async def monitor_date_rollover():
+    """
+    Checks periodically if the UTC date has changed.
+    If it has, triggers the processing script for the previous day.
+    """
+    logger.info("Starting date rollover monitor...")
+    current_date = datetime.utcnow().strftime("%Y-%m-%d")
+    
+    while True:
+        await asyncio.sleep(60) # Check every minute
+        new_date = datetime.utcnow().strftime("%Y-%m-%d")
+        
+        if new_date != current_date:
+            logger.info(f"Date rollover detected: {current_date} -> {new_date}")
+            prev_date = current_date
+            current_date = new_date
+            
+            # Trigger the processing script for the previous day
+            # We use subprocess.Popen to avoid blocking the main loop
+            # and to let it run independently.
+            logger.info(f"Triggering daily processing for {prev_date}...")
+            try:
+                # We assume the script is run from the project root usually.
+                # Using file path directly as 'process' might not be a valid package (init.py issue).
+                subprocess.Popen(
+                    [sys.executable, "src/process/process_lob.py", "--date", prev_date, "--sync"],
+                    cwd=os.getcwd(), # Ensure we run from current directory
+                    # We let stdout/stderr go to default (likely inherited) or could redirect to a file
+                )
+            except Exception as e:
+                logger.error(f"Failed to spawn processing script: {e}")
 
 def fetch_spot_coins(target_base_names: List[str]) -> Dict[str, str]:
     """
@@ -216,10 +250,14 @@ async def main():
     # We don't have async connection tasks anymore as managers are threads
     logger.info(f"Collector started with {len(managers)} connection(s). Press Ctrl+C to stop.")
     
+    # Start Date Rollover Monitor
+    monitor_task = asyncio.create_task(monitor_date_rollover())
+    
     try:
         await stop_event.wait()
     finally:
         logger.info("Shutting down...")
+        monitor_task.cancel()
         # Stop all managers
         for manager in managers:
             manager.stop()

@@ -2,18 +2,25 @@
 import pandas as pd
 import os
 import glob
+import argparse
+import subprocess
+from datetime import datetime, timedelta
 
 def merge_parquet(folder, output_file):
     files = glob.glob(os.path.join(folder, "*.parquet"))
     
+    if len(files) == 1 and os.path.basename(files[0])=='merged':
+        print(f'{folder} 只有一个 merged。')
+
+        
+        return
     if not files:
-        print("未找到Parquet文件。")
+        print(f'{folder}未找到Parquet文件。')
         return
 
     dfs = []
     # 如果输出文件也在这个文件夹里，需要避免把它自己也读进去（取决于你的文件名规则）
     # 建议先过滤掉 output_file
-    files = [f for f in files if os.path.abspath(f) != os.path.abspath(output_file)]
 
     for f in files:
         try:
@@ -40,8 +47,8 @@ def merge_parquet(folder, output_file):
         # -----------------------------------------------------
         # 关键修改：步骤 2 - 保存成功后，不删除源文件
         # -----------------------------------------------------
-        if output_file in f:
-            f.remove(output_file)
+        if output_file in files:
+            files.remove(output_file)
         for f in files:
             try:
                 os.remove(f)
@@ -89,7 +96,7 @@ def parse_first_price_vectorized(series):
     
     return series.apply(_parse)
 
-def     (input_path, output_path, start_session_id=0):
+def process_lob_parquet(input_path, output_path, start_session_id=0):
     """
     处理 LOB 数据，计算 Label，展开 Feature，并输出到 Parquet。
     
@@ -246,9 +253,6 @@ def     (input_path, output_path, start_session_id=0):
     df_out = df_out.dropna()
     
     print(f"写入输出文件: {output_path}, Shape: {df_out.shape}")
-# ... 前面的代码不变 ...
-
-    print(f"写入输出文件: {output_path}, Shape: {df_out.shape}")
     
     # 检查文件是否存在
     file_exists = os.path.exists(output_path)
@@ -264,3 +268,78 @@ def     (input_path, output_path, start_session_id=0):
     # 返回下一个可用的 session_id
     return current_max_session_id + 1
 
+def process_date(date_str, data_dir="data", sync=False):
+    """
+    Process all data for a specific date:
+    1. Merge parquet files in all subdirectories.
+    2. Sync to cloud storage via rclone.
+    """
+    day_dir = os.path.join(data_dir, date_str)
+    if not os.path.exists(day_dir):
+        print(f"Directory {day_dir} does not exist. Nothing to process.")
+        return
+
+    print(f"Starting processing for date: {date_str} in {day_dir}")
+
+    # 1. Merge Parquet Files
+    # Walk the directory tree: data/date/coin/channel/...
+    for root, dirs, files in os.walk(day_dir):
+        # We only care about directories that contain parquet files
+        # Filter for .parquet files
+        parquet_files = [f for f in files if f.endswith(".parquet")]
+        
+        # Skip if no parquet files
+        if not parquet_files:
+            continue
+            
+        # Skip if only merged.parquet exists (already processed)
+        if len(parquet_files) == 1 and parquet_files[0] == 'merged.parquet':
+            continue
+
+        output_file = os.path.join(root, "merged.parquet")
+        print(f"Merging files in: {root}")
+        try:
+            merge_parquet(root, output_file)
+        except Exception as e:
+            print(f"Error merging in {root}: {e}")
+
+    # 2. Sync via Rclone
+    if sync:
+        print("Starting rclone sync...")
+        # Use absolute path for source
+        abs_source = os.path.abspath(day_dir)
+        # Construct destination path: gdrive:backup/fetch_data/{date_str}
+        # Note: The user requested "gdrive:backup/fetch_data/..."
+        dest = f"gdrive:backup/fetch_data/{date_str}"
+        
+        cmd = [
+            "rclone", "copy", abs_source, dest,
+            "--ignore-existing", "-P"
+        ]
+        
+        print(f"Executing: {' '.join(cmd)}")
+        try:
+            subprocess.run(cmd, check=True)
+            print("Rclone sync completed successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Rclone sync failed with exit code {e.returncode}.")
+        except FileNotFoundError:
+            print("Error: 'rclone' command not found. Please install rclone.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Merge LOB data and sync to cloud.")
+    parser.add_argument("--date", type=str, help="Date to process (YYYY-MM-DD). Defaults to yesterday.")
+    parser.add_argument("--data-dir", type=str, default="data", help="Root data directory (default: ./data).")
+    parser.add_argument("--sync", action="store_true", help="Enable rclone sync after merging.")
+    
+    args = parser.parse_args()
+    
+    target_date = args.date
+    if not target_date:
+        # Default to yesterday (UTC based usually, or local)
+        # Using local time here as files are written with local/utc mix but folders are dates.
+        yesterday = datetime.now() - timedelta(days=1)
+        target_date = yesterday.strftime("%Y-%m-%d")
+        print(f"No date specified. Defaulting to yesterday: {target_date}")
+    
+    process_date(target_date, data_dir=args.data_dir, sync=args.sync)
