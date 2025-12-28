@@ -21,7 +21,7 @@ def merge_parquet(folder, output_file):
     dfs = []
     # 如果输出文件也在这个文件夹里，需要避免把它自己也读进去（取决于你的文件名规则）
     # 建议先过滤掉 output_file
-
+    files = sorted(files)
     for f in files:
         try:
             df = pd.read_parquet(f)
@@ -36,7 +36,7 @@ def merge_parquet(folder, output_file):
     # 合并数据
     df_merged = pd.concat(dfs, axis=0, ignore_index=True)
     df_merged = df_merged.dropna(axis=1, how='all')
-    
+
     # ---------------------------------------------------------
     # 关键修改：步骤 1 - 先尝试保存文件
     # ---------------------------------------------------------

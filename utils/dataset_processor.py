@@ -199,7 +199,7 @@ if __name__ == "__main__":
 
 
     VAL_START = '2025-12-23'
-    VAL_END = '2025-12-24'     # Inclusive
+    VAL_END = '2025-12-25'     # Inclusive
     
     # Run
     prepare_datasets(TRAIN_START, TRAIN_END, VAL_START, VAL_END, SYMBOL)

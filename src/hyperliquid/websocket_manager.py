@@ -191,7 +191,7 @@ class WebsocketManager(threading.Thread):
             # 但是业务数据已经很久没更新了
             if not self.is_awaiting_pong and time_since_last_data > 5.0:
                 if current_time - self.last_quiet_log_time > 5.0:
-                    logging.info(f"Status: Connection alive (Pong OK), but no market data received for {time_since_last_data:.1f}s. (Likely market inactive)")
+                    #logging.info(f"Status: Connection alive (Pong OK), but no market data received for {time_since_last_data:.1f}s. (Likely market inactive)")
                     self.last_quiet_log_time = current_time
 
     def on_message(self, _ws, message):
